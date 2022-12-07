@@ -1180,11 +1180,92 @@ N'importe quel membre pourrait exécuter la proposition via notre contrat de gou
   
 ## Révoquer les rôles
 
+vous détenez toujours les droits de mint sur le contrat ERC-20
   
+vous devriez révoquier votre rôle de mint
   
+scripts/11-revoke-roles.js:
   
+```
+import sdk from "./1-initialize-sdk.js";
+
+(async () => {
+  try {
+    const token = await sdk.getContract("INSERT_TOKEN_ADDRESS", "token");
+    // Log the current roles.
+    const allRoles = await token.roles.getAll();
+
+    console.log("👀 Roles that exist right now:", allRoles);
+
+    // Revoke all the superpowers your wallet had over the ERC-20 contract.
+    await token.roles.setAll({ admin: [], minter: [] });
+    console.log(
+      "🎉 Roles after revoking ourselves",
+      await token.roles.getAll()
+    );
+    console.log("✅ Successfully revoked our superpowers from the ERC-20 contract");
+
+  } catch (error) {
+    console.error("Failed to revoke ourselves from the DAO trasury", error);
+  }
+})();
+```
   
+```
+node scripts/11-revoke-roles.js
+```
+
+L'adresse avait un tas de privilèges sur l'ERC-20.
   
+Après avoir couru `token.roles.setAll({ admin: [], minter: [] })`, la seule personne qui a le rôle de mint est le contrat de vote.
+
+On a toujours le rôle `transfer` en conjonction avec `AddressZero`. `AddressZero` dans le tableau des rôles signifie que tout le monde peut transférer des jetons
+  
+## Gérer les erreurs de réseau de base non prises en charge
+  
+dans App.jsx, ajouter:
+  
+```
+import { useNetwork } from '@thirdweb-dev/react';
+import { ChainId } from '@thirdweb-dev/sdk';
+```
+  
+`useNetwork` permet de reconnaître une connexion en dehors du réseau Goerli  
+  
+`ChainId` permet d'obtenir l'ID de chaîne de Goerli
+  
+Ajouter :
+ 
+```
+const network = useNetwork();
+```
+  
+Sous `const memberList =`, ajouter :
+  
+```
+if (address && (network?.[0].data.chain.id !== ChainId.Goerli)) {
+  return (
+    <div className="unsupported-network">
+      <h2>Please connect to Goerli</h2>
+      <p>
+        This dapp only works on the Goerli network, please switch networks
+        in your connected wallet.
+      </p>
+    </div>
+  );
+}
+```
+
+- Vérifier si nous trouvons la chaîne Goerli sur notre réseau préféré
+- Si ce n'est pas le cas, inviter les utilisateurs à changer de réseau.
+
+## Voir votre jeton sur Uniswap
+
+Pour qu'un token de gouvernance ait de la valeur, d'autres personnes doivent en acheter sur des échanges décentralisés comme Uniswap.
+
+Le jeton apparaît désormais sur Uniswap sous Goerli
+  
+A propos des pools d'Uniswap : https://docs.uniswap.org/contracts/v2/concepts/core-concepts/pools
   
 
   
