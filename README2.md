@@ -86,16 +86,16 @@ Le contrat va être créé avec ThirdWeb (https://github.com/thirdweb-dev/contra
 
 Le tableau de bord fourni par ThirdWeb est https://thirdweb.com/dashboard.
 
-QuickNode permet de diffuser notre transaction de création de contrat afin qu'elle puisse être récupérée par les mineurs sur le testnet le plus rapidement possible. Une fois la transaction extraite, elle est ensuite diffusée sur la blockchain en tant que transaction légitime.
+Alchemy permet de diffuser notre transaction de création de contrat afin qu'elle puisse être récupérée par les mineurs sur le testnet le plus rapidement possible. Une fois la transaction extraite, elle est ensuite diffusée sur la blockchain en tant que transaction légitime.
 
-Créer un compte QuickNode (https://www.quicknode.com/).
+Créer un compte Alchemy sur https://dashboard.alchemy.com/.
 
-Créer un endpoint sur le Polygon sur le réseau Mumbai Testnet et sélectioner le mode `Discover`.
+Créer un endpoint sur Ethereum sur le réseau Goerli.
 
 Créer un fichier `.env` avec ce contenu :
 
 ```
-QUICKNODE_API_URL=<YOUR_API_URL>
+ALCHEMY_API_URL=<YOUR_API_URL>
 WALLET_ADDRESS=<YOUR_WALLET>
 0x04158d6B8bc018D41d910494c0f8d15813c8e638
 
@@ -117,8 +117,8 @@ if (!process.env.PRIVATE_KEY || process.env.PRIVATE_KEY === "") {
   console.log("🛑 Private key not found.");
 }
 
-if (!process.env.QUICKNODE_API_URL || process.env.QUICKNODE_API_URL === "") {
-  console.log("🛑 QuickNode API URL not found.");
+if (!process.env.ALCHEMY_API_URL || process.env.ALCHEMY_API_URL === "") {
+  console.log("🛑 Alchemy API URL not found.");
 }
 
 if (!process.env.WALLET_ADDRESS || process.env.WALLET_ADDRESS === "") {
@@ -128,8 +128,8 @@ if (!process.env.WALLET_ADDRESS || process.env.WALLET_ADDRESS === "") {
 const sdk = ThirdwebSDK.fromPrivateKey(
   // Your wallet private key. ALWAYS KEEP THIS PRIVATE, DO NOT SHARE IT WITH ANYONE, add it to your .env file and do not commit that file to github!
   process.env.PRIVATE_KEY,
-  // RPC URL, we'll use our QuickNode API URL from our .env file.
-  process.env.QUICKNODE_API_URL
+  // RPC URL, we'll use our Alchemy API URL from our .env file.
+  process.env.ALCHEMY_API_URL
 );
 
 (async () => {
@@ -403,7 +403,179 @@ Nous transmettons également des callbacks `onSuccess`et `onError` pour gérer l
 
 Pour mint un NFT, Metamask apparaît pour payer le gaz. Le lien vers le Testnet OpenSea (https://testnets.opensea.io/) est alors affiché dans la console.
 
+Cliquer sur `MINT YOUR NFT (FREE)`.
+
+Dans la console, le lien vers OpenSea est affiché.
+
+Cliquer sur le lien ou chercher sur OpenSea le contrat.
+
+#  CREATE TOKEN + GOVERNANCE
+
+# Deploy an ERC-20 contract
+
+un jeton de gouvernance permet aux utilisateurs de voter sur des propositions.
+
+## Déployez votre token
+
+scripts/5-deploy-token.js :
+
+```
+import { AddressZero } from "@ethersproject/constants";
+import sdk from "./1-initialize-sdk.js";
+
+(async () => {
+  try {
+    // Deploy a standard ERC-20 contract.
+    const tokenAddress = await sdk.deployer.deployToken({
+      // What's your token's name? Ex. "Ethereum"
+      name: "NarutoDAO Governance Token",
+      // What's your token's symbol? Ex. "ETH"
+      symbol: "HOKAGE",
+      // This will be in case we want to sell our token,
+      // because we don't, we set it to AddressZero again.
+      primary_sale_recipient: AddressZero,
+    });
+    console.log(
+      "✅ Successfully deployed token contract, address:",
+      tokenAddress,
+    );
+  } catch (error) {
+    console.error("failed to deploy token contract", error);
+  }
+})();
+```
+
+`sdk.deployer.deployToken` déploie un contrat de jeton standard ERC-20
+`name` : nom du token
+`symbol` : symbole du token
+
+Le contrat déployé par ThirdWeb est https://github.com/thirdweb-dev/contracts/blob/main/contracts/token/TokenERC20.sol
+
+```
+node scripts/5-deploy-token.js
+```
+
+Un nouveau contrat de token est déployé.
+
+Sur https://goerli.etherscan.io/, vous voyez une nouvelle transaction sur votre contrat.
+
+Le nouveau contrat peut aussi être trouvé.
+
+Dans Metamask, ajouter le token associé à ce nouveau contrat.
+
+## Créez votre réserve de jetons
+
+il n'y a aucun jeton disponible pour les personnes réclamant
+
+6-print-money.js :
+
+```
+import sdk from "./1-initialize-sdk.js";
+
+(async () => {
+  try {
+    // This is the address of our ERC-20 contract printed out in the step before.
+    const token = await sdk.getContract("<TOKEN-ADDRESS>", "token");
+    // What's the max supply you want to set? 1,000,000 is a nice number!
+    const amount = 1_000_000;
+    // Interact with your deployed ERC-20 contract and mint the tokens!
+    await token.mint(amount);
+    const totalSupply = await token.totalSupply();
+
+    // Print out how many of our token's are out there now!
+    console.log("✅ There now is", totalSupply.displayValue, "$HOKAGE in circulation");
+  } catch (error) {
+    console.error("Failed to print money", error);
+  }
+})();
+```
+
+Remplacer <TOKEN-ADDRESS> par l'adresse du contrat du token créé.
+
+`amount` indique le montant à mint.
+  
+```
+node scripts/6-print-money.js
+```
+
+Aller voir le contrat ERC-20 dans Etherscan
+
+Des informations sont affichées :
+- qui détient votre jeton
+- qui transfère des jetons
+- combien de jetons sont déplacés.
+- Max Total Supply
+
+## Airdrop
+  
+7-airdrop-token.js :
+  
+```
+import sdk from "./1-initialize-sdk.js";
+
+(async () => {
+  try {
+    // This is the address to our ERC-1155 membership NFT contract.
+    const editionDrop = await sdk.getContract("INSERT_EDITION_DROP_ADDRESS", "edition-drop");
+    // This is the address to our ERC-20 token contract.
+    const token = await sdk.getContract("INSERT_TOKEN_ADDRESS", "token");
+    // Grab all the addresses of people who own our membership NFT, which has 
+    // a tokenId of 0.
+    const walletAddresses = await editionDrop.history.getAllClaimerAddresses(0);
+
+    if (walletAddresses.length === 0) {
+      console.log(
+        "No NFTs have been claimed yet, maybe get some friends to claim your free NFTs!",
+      );
+      process.exit(0);
+    }
+
+    // Loop through the array of addresses.
+    const airdropTargets = walletAddresses.map((address) => {
+      // Pick a random # between 1000 and 10000.
+      const randomAmount = Math.floor(Math.random() * (10000 - 1000 + 1) + 1000);
+      console.log("✅ Going to airdrop", randomAmount, "tokens to", address);
+
+      // Set up the target.
+      const airdropTarget = {
+        toAddress: address,
+        amount: randomAmount,
+      };
+
+      return airdropTarget;
+    });
+
+    // Call transferBatch on all our airdrop targets.
+    console.log("🌈 Starting airdrop...");
+    await token.transferBatch(airdropTargets);
+    console.log("✅ Successfully airdropped tokens to all the holders of the NFT!");
+  } catch (err) {
+    console.error("Failed to airdrop tokens", err);
+  }
+})();
+```
+  
+- récupérer les détenteurs de notre NFT auprès du editionDrop
+- émettre leur jeton à l'aide de fonctions sur le token
+- `getAllClaimerAddresses` saisit les `walletAddresses` des personnes qui ont le NFT membership NFT avec un tokenId à "0".
+- exécute transferBatch sur tous les fichiers airdropTargets. transferBatch boucle automatiquement sur toutes les cibles et envoie le jeton
+
+```
+  node scripts/7-airdrop-token.js
+```
+
+Dans le monde réel , un airdrop ne se produit généralement qu'une seule fois. 
+
+Sur Etherscan, sur mon contrat ERC-20, on peut voir les nouveaux détenteurs de jetons et combien ils en possèdent.
 
 
+  
+  
 
 
+  
+  
+  
+  
+  
+  
