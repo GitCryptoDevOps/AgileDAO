@@ -219,7 +219,7 @@ Un contrat ERC-1155 a été déployé sur Goerli.
 
 Sur https://goerli.etherscan.io/, coller l'adresse du contrat editionDrop.
 
-On voit une transaction correspondant au déploiement du contrat.
+Dans l'onglet `Internal txns`, on voit une transaction correspondant au déploiement du contrat.
 
 ThirdWeb a automatiquement uploadé l'image de votre collection sur IPFS. Un lien commençant par https://gateway.ipfscdn.io est affiché.
 
@@ -568,7 +568,629 @@ Dans le monde réel , un airdrop ne se produit généralement qu'une seule fois.
 
 Sur Etherscan, sur mon contrat ERC-20, on peut voir les nouveaux détenteurs de jetons et combien ils en possèdent.
 
+# Montrez les détenteurs de jetons sur le tableau de bord DAO
+  
+## Récupérer les détenteurs de jetons sur l'application Web
 
+Dans App.jsx, ajoutez le fichier token :
+
+```
+// Initialize our token contract
+const { contract: token } = useContract('INSERT_TOKEN_ADDRESS', 'token');
+```
+
+Depuis l'ERC-1155, nous obtiendrons les adresses de tous nos membres. À partir de l'ERC-20, nous récupérerons le nombre de jetons que possède chaque membre.
+
+Sous `const hasClaimedNFT`, ajouter :
+  
+```
+// Holds the amount of token each member has in state.
+const [memberTokenAmounts, setMemberTokenAmounts] = useState([]);
+// The array holding all of our members addresses.
+const [memberAddresses, setMemberAddresses] = useState([]);
+
+// A fancy function to shorten someones wallet address, no need to show the whole thing.
+const shortenAddress = (str) => {
+  return str.substring(0, 6) + '...' + str.substring(str.length - 4);
+};
+
+// This useEffect grabs all the addresses of our members holding our NFT.
+useEffect(() => {
+  if (!hasClaimedNFT) {
+    return;
+  }
+
+  // Just like we did in the 7-airdrop-token.js file! Grab the users who hold our NFT
+  // with tokenId 0.
+  const getAllAddresses = async () => {
+    try {
+      const memberAddresses = await editionDrop?.history.getAllClaimerAddresses(
+        0,
+      );
+      setMemberAddresses(memberAddresses);
+      console.log('🚀 Members addresses', memberAddresses);
+    } catch (error) {
+      console.error('failed to get member list', error);
+    }
+  };
+  getAllAddresses();
+}, [hasClaimedNFT, editionDrop?.history]);
+
+// This useEffect grabs the # of token each member holds.
+useEffect(() => {
+  if (!hasClaimedNFT) {
+    return;
+  }
+
+  const getAllBalances = async () => {
+    try {
+      const amounts = await token?.history.getAllHolderBalances();
+      setMemberTokenAmounts(amounts);
+      console.log('👜 Amounts', amounts);
+    } catch (error) {
+      console.error('failed to get member balances', error);
+    }
+  };
+  getAllBalances();
+}, [hasClaimedNFT, token?.history]);
+
+// Now, we combine the memberAddresses and memberTokenAmounts into a single array
+const memberList = useMemo(() => {
+  return memberAddresses.map((address) => {
+    // We're checking if we are finding the address in the memberTokenAmounts array.
+    // If we are, we'll return the amount of token the user has.
+    // Otherwise, return 0.
+    const member = memberTokenAmounts?.find(({ holder }) => holder === address);
+
+    return {
+      address,
+      tokenAmount: member?.balance.displayValue || '0',
+    };
+  });
+}, [memberAddresses, memberTokenAmounts]);
+```
+
+- appeler getAllClaimerAddressespour avoir toutes les adresses de nos membres titulaires d'un NFT de notre contrat ERC-1155.
+- appeler getAllHolderBalancespour obtenir les soldes de jetons de tous ceux qui détiennent notre jeton sur notre contrat ERC-20.
+- combiner les données dans memberListun joli tableau qui combine à la fois l'adresse du membre et son solde de jetons
+
+`useMemo` (https://reactjs.org/docs/hooks-reference.html#usememo) est une façon élégante dans React de stocker une variable calculée.
+  
+`getAllHolderBalances` ne répond pas à notre besoin car quelqu'un peut être dans notre DAO et détenir zéro jeton.
+ 
+## Afficher les données des membres sur le tableau de bord DAO
+  
+Avant le `return` final, insérer :
+  
+```
+// If the user has already claimed their NFT we want to display the internal DAO page to them
+// only DAO members will see this. Render all the members + token amounts.
+if (hasClaimedNFT) {
+  return (
+    <div className="member-page">
+      <h1>🍪DAO Member Page</h1>
+      <p>Congratulations on being a member</p>
+      <div>
+        <div>
+          <h2>Member List</h2>
+          <table className="card">
+            <thead>
+              <tr>
+                <th>Address</th>
+                <th>Token Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {memberList.map((member) => {
+                return (
+                  <tr key={member.address}>
+                    <td>{shortenAddress(member.address)}</td>
+                    <td>{member.tokenAmount}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+  
+# Construire une trésorerie + gouvernance
+  
+mettre en place un contrat de gouvernance qui permet aux gens de voter sur des propositions en utilisant leurs jetons
+  
+## Déployer un contrat de gouvernance
+  
+Qui a le droit de voter ? Combien de temps les gens ont-ils pour voter ? Quel est le nombre minimum de jetons dont une personne a besoin pour créer une proposition ?
+
+8-deploy-vote.js:
+  
+```
+import sdk from "./1-initialize-sdk.js";
+
+(async () => {
+  try {
+    const voteContractAddress = await sdk.deployer.deployVote({
+      // Give your governance contract a name.
+      name: "My amazing DAO",
+
+      // This is the location of our governance token, our ERC-20 contract!
+      voting_token_address: "INSERT_TOKEN_ADDRESS",
+
+      // These parameters are specified in number of blocks. 
+      // Assuming block time of around 13.14 seconds (for Ethereum)
+
+      // After a proposal is created, when can members start voting?
+      // For now, we set this to immediately.
+      voting_delay_in_blocks: 0,
+
+      // How long do members have to vote on a proposal when it's created?
+      // we will set it to 1 day = 6570 blocks
+      voting_period_in_blocks: 6570,
+
+      // The minimum % of the total supply that need to vote for
+      // the proposal to be valid after the time for the proposal has ended.
+      voting_quorum_fraction: 0,
+
+      // What's the minimum # of tokens a user needs to be allowed to create a proposal?
+      // I set it to 0. Meaning no tokens are required for a user to be allowed to
+      // create a proposal.
+      proposal_token_threshold: 0,
+    });
+
+    console.log(
+      "✅ Successfully deployed vote contract, address:",
+      voteContractAddress,
+    );
+  } catch (err) {
+    console.error("Failed to deploy vote contract", err);
+  }
+})();
+```
+
+`deployer.deployVote` établit le contrat
+
+`voting_token_address` est le contrat qui sait quel jeton de gouvernance accepter
+
+`voting_delay_in_blocks` permet de donner aux gens le temps d'examiner la proposition avant qu'ils ne soient autorisés à voter dessus
+ 
+`voting_period_in_blocks` spécifie combien de temps quelqu'un doit voter une fois qu'une proposition est mise en ligne. Nous le faisons en blocs, ce qui, selon la blockchain sur laquelle vous vous trouvez, peut prendre plus de temps, pour Ethereum/Goerli, il y a un bloc toutes les 13 secondes ou alors, donc en moyenne, il y a 6570 blocs par jour.
+
+`voting_quorum_fraction` : Disons qu'un membre crée une proposition et que les  199 autres  membres de DAO sont en vacances à Disney World et ne sont pas en ligne. Eh bien, dans ce cas, si ce membre du DAO crée la proposition et vote "OUI" sur sa propre proposition - cela signifie que 100% des votes ont dit "OUI" (puisqu'il n'y a eu qu'un seul vote) et la proposition  passerait une fois `voting_period_in_blocks`  est en haut! Pour éviter cela, nous utilisons un quorum qui dit "Pour qu'une proposition soit acceptée, un minimum de x % de jetons doit être utilisé lors du vote".
+
+Si `voting_quorum_fraction` vaut 0, cela signifie que la proposition passera quel que soit le % de jeton utilisé lors du vote. Cela signifie qu'une personne pourrait techniquement passer une proposition elle-même si les autres membres sont en vacances. Le quorum que vous définissez dans le monde réel dépend de votre approvisionnement et de la quantité que vous avez initialement larguée.
+
+`proposal_token_threshold` à : "0" permet à quiconque de créer une proposition même s'il ne détient aucun jeton de gouvernance.
+  
+```
+node scripts/8-deploy-vote.js
+```
+
+Un nouveau contrat a été déployé pour voter sur des propositions en chaîne. Il s'agit d'un  contrat de gouvernance standard (https://docs.openzeppelin.com/contracts/4.x/api/governance). https://github.com/thirdweb-dev/contracts/blob/main/contracts/vote/VoteERC20.sol
+  
+Voir le contrat sur https://goerli.etherscan.io/.
+  
+Nous avons donc maintenant trois contrats : notre contrat NFT, notre contrat de jeton et notre contrat de vote
+  
+## Configurez votre trésorerie
+  
+Le contrat de vote lui-même n'a pas la capacité de déplacer nos jetons. 
+  
+Parce que  vous avez créé la fourniture de jetons. Votre portefeuille possède l'accès à l'ensemble de l'offre. Donc, vous seul avez le pouvoir d'accéder à la supply, de déplacer des jetons, de faire des airdrops, etc. 
+  
+Donc nous allons transférer 90 % de tous nos jetons vers le contrat de vote
+  
+Exemple d'ENS :
+  
+- 50% de la supply à leur trésorerie communautaire
+- 25% de airdrops,
+- 25% à l'équipe principale + contributeurs.
+
+9-setup-vote.js:
+
+```
+import sdk from "./1-initialize-sdk.js";
+
+(async () => {
+  try {
+    // This is our governance contract.
+    const vote = await sdk.getContract("INSERT_VOTE_ADDRESS", "vote");
+    // This is our ERC-20 contract.
+    const token = await sdk.getContract("INSERT_TOKEN_ADDRESS", "token");
+    // Give our treasury the power to mint additional token if needed.
+    await token.roles.grant("minter", vote.getAddress());
+
+    console.log(
+      "Successfully gave vote contract permissions to act on token contract"
+    );
+  } catch (error) {
+    console.error(
+      "failed to grant vote contract permissions on token contract",
+      error
+    );
+    process.exit(1);
+  }
+
+  try {
+    // This is our governance contract.
+    const vote = await sdk.getContract("INSERT_VOTE_ADDRESS", "vote");
+    // This is our ERC-20 contract.
+    const token = await sdk.getContract("INSERT_TOKEN_ADDRESS", "token");
+    // Grab our wallet's token balance, remember -- we hold basically the entire supply right now!
+    const ownedTokenBalance = await token.balanceOf(
+      process.env.WALLET_ADDRESS
+    );
+
+    // Grab 90% of the supply that we hold.
+    const ownedAmount = ownedTokenBalance.displayValue;
+    const percent90 = Number(ownedAmount) / 100 * 90;
+
+    // Transfer 90% of the supply to our voting contract.
+    await token.transfer(
+      vote.getAddress(),
+      percent90
+    ); 
+
+    console.log("✅ Successfully transferred " + percent90 + " tokens to vote contract");
+  } catch (err) {
+    console.error("failed to transfer tokens to vote contract", err);
+  }
+})();
+```
+  
+- `token.balanceOf` récupère le nombre total de jetons que nous avons dans notre portefeuille
+- A l'heure actuelle, notre portefeuille contient essentiellement la totalité de la supply, à l'exception du jeton que nous avons airdropé.
+- Il reste donc 90%.
+- `token.transfer` transfère ces 90% au module de vote.
+
+```
+node scripts/9-setup-vote.js
+```
+
+Aller sur https://goerli.etherscan.io et voir ce nouveau contrat.
+
+Cliquer sur le menu déroulant à côté du mot `Erc20 Token Txns`. On voit le transfert de 900.000 tokens.
+  
+On peut confirmer cela en cliquant dans la section `Contract Overview`, dans la liste déroulante `Token`, on retrouve bien la valeur 900.000.
+  
+# Laissez les utilisateurs voter sur les propositions
+  
+## Créez les deux premières propositions de votre DAO
+
+10-create-vote-proposals.js :
+  
+```
+import sdk from "./1-initialize-sdk.js";
+import { ethers } from "ethers";
+
+(async () => {
+  try {
+    // This is our governance contract.
+    const vote = await sdk.getContract("INSERT_VOTE_ADDRESS", "vote");
+    // This is our ERC-20 contract.
+    const token = await sdk.getContract("INSERT_TOKEN_ADDRESS", "token");
+    // Create proposal to mint 420,000 new token to the treasury.
+    const amount = 420_000;
+    const description = "Should the DAO mint an additional " + amount + " tokens into the treasury?";
+    const executions = [
+      {
+        // Our token contract that actually executes the mint.
+        toAddress: token.getAddress(),
+        // Our nativeToken is ETH. nativeTokenValue is the amount of ETH we want
+        // to send in this proposal. In this case, we're sending 0 ETH.
+        // We're just minting new tokens to the treasury. So, set to 0.
+        nativeTokenValue: 0,
+        // We're doing a mint! And, we're minting to the vote, which is
+        // acting as our treasury.
+        // in this case, we need to use ethers.js to convert the amount
+        // to the correct format. This is because the amount it requires is in wei.
+        transactionData: token.encoder.encode(
+          "mintTo", [
+          vote.getAddress(),
+          ethers.utils.parseUnits(amount.toString(), 18),
+        ]
+        ),
+      }
+    ];
+
+    await vote.propose(description, executions);
+
+    console.log("✅ Successfully created proposal to mint tokens");
+  } catch (error) {
+    console.error("failed to create first proposal", error);
+    process.exit(1);
+  }
+
+  try {
+    // This is our governance contract.
+    const vote = await sdk.getContract("INSERT_VOTE_ADDRESS", "vote");
+    // This is our ERC-20 contract.
+    const token = await sdk.getContract("INSERT_TOKEN_ADDRESS", "token");
+    // Create proposal to transfer ourselves 6,900 tokens for being awesome.
+    const amount = 6_900;
+    const description = "Should the DAO transfer " + amount + " tokens from the treasury to " +
+      process.env.WALLET_ADDRESS + " for being awesome?";
+    const executions = [
+      {
+        // Again, we're sending ourselves 0 ETH. Just sending our own token.
+        nativeTokenValue: 0,
+        transactionData: token.encoder.encode(
+          // We're doing a transfer from the treasury to our wallet.
+          "transfer",
+          [
+            process.env.WALLET_ADDRESS,
+            ethers.utils.parseUnits(amount.toString(), 18),
+          ]
+        ),
+        toAddress: token.getAddress(),
+      },
+    ];
+
+    await vote.propose(description, executions);
+
+    console.log(
+      "✅ Successfully created proposal to reward ourselves from the treasury, let's hope people vote for it!"
+    );
+  } catch (error) {
+    console.error("failed to create second proposal", error);
+  }
+})();
+```
+
+- mint: Nous créons une proposition qui permet au Trésor de frapper 420 000 nouveaux jetons
+- transfer: Nous créons une proposition qui transfère 6 900 jetons vers notre portefeuille depuis le Trésor
+  
+nativeTokenValue : récompenser les gens avec des jetons ETH et des jetons de gouvernance. Ce 0,1 ETH devrait être dans notre trésorerie si nous voulions l'envoyer
+  
+```
+node scripts/10-create-vote-proposals.js
+```
+  
+Les nouvelles propositions sont intégrées.
+  
+Si `proposal_token_threshold > 0`, le code peut générer une erreur. Dans ce cas, vous devez déléguer vos jetons au contrat de vote pour qu'il fonctionne avant de déployer les propositions.
+
+## Laissez les utilisateurs voter sur les propositions du tableau de bord
+  
+nous voulons que nos utilisateurs puissent facilement les voir et voter
+  
+Dans App.jsx:
+- ajouter :
+  
+```
+const { contract: vote } = useContract("INSERT_VOTE_ADDRESS", "vote");
+```
+ 
+- sous `shortenAddress`, ajouter :
+  
+```
+const [proposals, setProposals] = useState([]);
+const [isVoting, setIsVoting] = useState(false);
+const [hasVoted, setHasVoted] = useState(false);
+
+// Retrieve all our existing proposals from the contract.
+useEffect(() => {
+  if (!hasClaimedNFT) {
+    return;
+  }
+
+  // A simple call to vote.getAll() to grab the proposals.
+  const getAllProposals = async () => {
+    try {
+      const proposals = await vote.getAll();
+      setProposals(proposals);
+      console.log("🌈 Proposals:", proposals);
+    } catch (error) {
+      console.log("failed to get proposals", error);
+    }
+  };
+  getAllProposals();
+}, [hasClaimedNFT, vote]);
+
+// We also need to check if the user already voted.
+useEffect(() => {
+  if (!hasClaimedNFT) {
+    return;
+  }
+
+  // If we haven't finished retrieving the proposals from the useEffect above
+  // then we can't check if the user voted yet!
+  if (!proposals.length) {
+    return;
+  }
+
+  const checkIfUserHasVoted = async () => {
+    try {
+      const hasVoted = await vote.hasVoted(proposals[0].proposalId, address);
+      setHasVoted(hasVoted);
+      if (hasVoted) {
+        console.log("🥵 User has already voted");
+      } else {
+        console.log("🙂 User has not voted yet");
+      }
+    } catch (error) {
+      console.error("Failed to check if wallet has voted", error);
+    }
+  };
+  checkIfUserHasVoted();
+
+}, [hasClaimedNFT, proposals, address, vote]);
+```
+  
+Dans le premier `useEffect`:
+- `vote.getAll()` récupère les propositions du contrat de gouvernance
+- `setProposals` permet de les restituer.
+
+Dans le deuxième `useEffect`:
+- `vote.hasVoted(proposals[0].proposalId, address)` vérifie si cette adresse a voté sur la première proposition.
+- Si c'est le cas, nous le faisons `setHasVoted` pour que l'utilisateur ne puisse plus voter. Même si nous n'avions pas cela, notre contrat rejetterait la transaction si un utilisateur tentait de doubler son vote.
+
+`thirdweb` facilite le déploiement de contrats intelligents et l'interaction avec eux depuis notre client.
+  
+Les propositions sont affichées dans la console.
+  
+Maintenant, nous voulons rendre les propositions que nous venons de récupérer ici afin que les utilisateurs puissent avoir trois options pour voter :
+- Pour
+- Contre
+- Abstention
+
+Ajouter :
+  
+```
+import { AddressZero } from "@ethersproject/constants";
+```
+
+Sous le bloc `<div>` de MemberList, ajouter :
+  
+```
+          <div>
+            <h2>Active Proposals</h2>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                //before we do async things, we want to disable the button to prevent double clicks
+                setIsVoting(true);
+
+                // lets get the votes from the form for the values
+                const votes = proposals.map((proposal) => {
+                  const voteResult = {
+                    proposalId: proposal.proposalId,
+                    //abstain by default
+                    vote: 2,
+                  };
+                  proposal.votes.forEach((vote) => {
+                    const elem = document.getElementById(
+                      proposal.proposalId + '-' + vote.type,
+                    );
+
+                    if (elem.checked) {
+                      voteResult.vote = vote.type;
+                      return;
+                    }
+                  });
+                  return voteResult;
+                });
+
+                // first we need to make sure the user delegates their token to vote
+                try {
+                  //we'll check if the wallet still needs to delegate their tokens before they can vote
+                  const delegation = await token.getDelegationOf(address);
+                  // if the delegation is the 0x0 address that means they have not delegated their governance tokens yet
+                  if (delegation === AddressZero) {
+                    //if they haven't delegated their tokens yet, we'll have them delegate them before voting
+                    await token.delegateTo(address);
+                  }
+                  // then we need to vote on the proposals
+                  try {
+                    await Promise.all(
+                      votes.map(async ({ proposalId, vote: _vote }) => {
+                        // before voting we first need to check whether the proposal is open for voting
+                        // we first need to get the latest state of the proposal
+                        const proposal = await vote.get(proposalId);
+                        // then we check if the proposal is open for voting (state === 1 means it is open)
+                        if (proposal.state === 1) {
+                          // if it is open for voting, we'll vote on it
+                          return vote.vote(proposalId, _vote);
+                        }
+                        // if the proposal is not open for voting we just return nothing, letting us continue
+                        return;
+                      }),
+                    );
+                    try {
+                      // if any of the propsals are ready to be executed we'll need to execute them
+                      // a proposal is ready to be executed if it is in state 4
+                      await Promise.all(
+                        votes.map(async ({ proposalId }) => {
+                          // we'll first get the latest state of the proposal again, since we may have just voted before
+                          const proposal = await vote.get(proposalId);
+
+                          //if the state is in state 4 (meaning that it is ready to be executed), we'll execute the proposal
+                          if (proposal.state === 4) {
+                            return vote.execute(proposalId);
+                          }
+                        }),
+                      );
+                      // if we get here that means we successfully voted, so let's set the "hasVoted" state to true
+                      setHasVoted(true);
+                      // and log out a success message
+                      console.log('successfully voted');
+                    } catch (err) {
+                      console.error('failed to execute votes', err);
+                    }
+                  } catch (err) {
+                    console.error('failed to vote', err);
+                  }
+                } catch (err) {
+                  console.error('failed to delegate tokens');
+                } finally {
+                  // in *either* case we need to set the isVoting state to false to enable the button again
+                  setIsVoting(false);
+                }
+              }}
+            >
+              {proposals.map((proposal) => (
+                <div key={proposal.proposalId} className="card">
+                  <h5>{proposal.description}</h5>
+                  <div>
+                    {proposal.votes.map(({ type, label }) => (
+                      <div key={type}>
+                        <input
+                          type="radio"
+                          id={proposal.proposalId + '-' + type}
+                          name={proposal.proposalId}
+                          value={type}
+                          //default the "abstain" vote to checked
+                          defaultChecked={type === 2}
+                        />
+                        <label htmlFor={proposal.proposalId + '-' + type}>
+                          {label}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <button disabled={isVoting || hasVoted} type="submit">
+                {isVoting
+                  ? 'Voting...'
+                  : hasVoted
+                  ? 'You Already Voted'
+                  : 'Submit Votes'}
+              </button>
+              {!hasVoted && (
+                <small>
+                  This will trigger multiple transactions that you will need to
+                  sign.
+                </small>
+              )}
+            </form>
+          </div>
+```
+  
+Le contrat de gouvernance s'arrête de voter après 24 heures, c'est-à-dire si `votes "for" proposal > votes "against" proposal`.
+  
+N'importe quel membre pourrait exécuter la proposition via notre contrat de gouvernance. Les propositions ne peuvent pas être exécutées automatiquement. Mais, une fois qu'une proposition est acceptée, tout membre du DAO peut déclencher la proposition acceptée.
+
+# Supprimez vos pouvoirs d'administrateur et gérez les erreurs de base
+  
+## Révoquer les rôles
+
+  
+  
+  
+  
+  
+  
+
+  
+
+  
+  
   
   
 
