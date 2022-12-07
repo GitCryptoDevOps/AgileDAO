@@ -84,7 +84,7 @@ export default App;
 
 Le contrat va être créé avec ThirdWeb (https://github.com/thirdweb-dev/contracts).
 
-Le tableau de bord fourni par ThirdWeb est https://thirdweb.com/dashboard?utm_source=buildspace&utm_medium=buildspace_project.
+Le tableau de bord fourni par ThirdWeb est https://thirdweb.com/dashboard.
 
 QuickNode permet de diffuser notre transaction de création de contrat afin qu'elle puisse être récupérée par les mineurs sur le testnet le plus rapidement possible. Une fois la transaction extraite, elle est ensuite diffusée sur la blockchain en tant que transaction légitime.
 
@@ -217,9 +217,9 @@ node scripts/2-deploy-drop.js
 
 Un contrat ERC-1155 a été déployé sur Goerli.
 
-Sur [https://goerli.etherscan.io/](https://mumbai.polygonscan.com), coller l'adresse du contrat editionDrop.
+Sur https://goerli.etherscan.io/, coller l'adresse du contrat editionDrop.
 
-https://mumbai.polygonscan.com/address/0x871bf74da6B172585e2eA884bE36116A78D49204#internaltx
+On voit une transaction correspondant au déploiement du contrat.
 
 ThirdWeb a automatiquement uploadé l'image de votre collection sur IPFS. Un lien commençant par https://gateway.ipfscdn.io est affiché.
 
@@ -325,6 +325,85 @@ remplacer INSERT_EDITION_DROP_ADDRESSpar l'adresse de votre contrat ERC-1155.
 ```
 node scripts/4-set-claim-condition.js
 ```
+
+# Laissez les utilisateurs frapper vos NFT
+
+si nous détectons que notre utilisateur a un abonnement NFT, montrez-lui notre écran "DAO Dashboard" où il peut voter sur les propositions et voir les informations liées à DAO.
+
+si nous détectons que l'utilisateur n'a pas notre NFT, nous lui donnerons un bouton pour en fabriquer un.
+
+## Vérifiez si l'utilisateur possède un abonnement NFT
+
+Dans App.jsx, ajouter :
+
+```
+import { useAddress, ConnectWallet, useContract, useNFTBalance } from '@thirdweb-dev/react';
+import { useState, useEffect, useMemo } from 'react';
+```
+
+Sous `console.log("👋 Address:", address);`, ajouter :
+
+```
+ // Initialize our Edition Drop contract
+  const editionDropAddress = "INSERT_EDITION_DROP_ADDRESS"
+  const { contract: editionDrop } = useContract(editionDropAddress, "edition-drop");
+  // Hook to check if the user has our NFT
+  const { data: nftBalance } = useNFTBalance(editionDrop, address, "0")
+
+  const hasClaimedNFT = useMemo(() => {
+    return nftBalance && nftBalance.gt(0)
+  }, [nftBalance])
+
+  // ... include all your other code that was already there below.
+  ```
+  
+- initialiser notre editionDropcontrat.
+- utiliser `useNFTBalance` pour vérifier combien de NFT le mur connecté détient. Cela interrogera en fait notre contrat intelligent déployé pour les données. "0" c'est le tokenIdde notre adhésion NFT.
+- Si un utilisateur n'a pas de NFT, créer un bouton pour permettre à l'utilisateur d'en créer un.
+
+## Construire un bouton "Mint NFT"
+
+Dans App.jsx, ajouter :
+
+```
+import { Web3Button } from '@thirdweb-dev/react';
+
+const App = () => {
+  ...
+  return (
+    <div className="mint-nft">
+      <h1>Mint your free 🍪DAO Membership NFT</h1>
+      <div className="btn-hero">
+        <Web3Button 
+          contractAddress={editionDropAddress}
+          action={contract => {
+            contract.erc1155.claim(0, 1)
+          }}
+          onSuccess={() => {
+            console.log(`🌊 Successfully Minted! Check it out on OpenSea: https://testnets.opensea.io/assets/${editionDrop.getAddress()}/0`);
+          }}
+          onError={error => {
+            console.error("Failed to mint NFT", error);
+          }}
+        >
+          Mint your NFT (FREE)
+        </Web3Button>
+      </div>
+    </div>
+  );
+}
+```
+
+- utiliser `Web3Button` pour créer un bouton qui appellera notre fonction `claim` sur notre contrat `editionDrop`.
+- transmettre `address` de l'utilisateur, `1` pour la quantité (`amount`) des NFT à mint, et `0` pour le `tokenId` du NFT à mint.
+
+Une transaction est réalisée sur notre contrat intelligent pour créer le NFT.
+
+Nous transmettons également des callbacks `onSuccess`et `onError` pour gérer les cas de réussite et d'erreur.
+
+Pour mint un NFT, Metamask apparaît pour payer le gaz. Le lien vers le Testnet OpenSea (https://testnets.opensea.io/) est alors affiché dans la console.
+
+
 
 
 
