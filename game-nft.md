@@ -344,18 +344,7 @@ contract MyEpicGame is ERC721 {
 
 ## Maintien de données dynamiques sur un NFT
 
-Stocker les données des personnages par joueur :
-
-```
-nftHolderAttributes[newItemId] = CharacterAttributes({
-  characterIndex: _characterIndex,
-  name: defaultCharacters[_characterIndex].name,
-  imageURI: defaultCharacters[_characterIndex].imageURI,
-  hp: defaultCharacters[_characterIndex].hp,
-  maxHp:defaultCharacters[_characterIndex].maxHp,
-  attackDamage: defaultCharacters[_characterIndex].attackDamage
-});
-```
+Les données des personnages sont stockées `nftHolderAttributes` pour chaque joueur.
 
 notre NFT contient des données relatives au NFT de notre joueur. Mais ces données sont dynamiques
 
