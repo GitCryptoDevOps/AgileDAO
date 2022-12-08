@@ -906,6 +906,8 @@ Puis copier le contenu restant dans le fichier `scripts/deploy.js`.
 npx hardhat run scripts/deploy.js --network goerli
 ```
 
+La durée d'exécution peut durer plus de 10 minutes.
+
 Aller sur `https://goerli.pixxiti.com/nfts/INSERT_DEPLOY_CONTRACT_ADDRESS_HERE/INSERT_TOKEN_ID_HERE`.
 
 Pour voir les valeurs actualisées, vous pouvez devoir cliquer sur le bouton `Refresh`.
