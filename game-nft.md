@@ -405,6 +405,513 @@ Donc `msg.sender` est l'adresse publique de ce portefeuille local.
 npx hardhat run scripts/run.js
 ```
 
+`nftHolderAttributes` n'est pas attaché au NFT. Nous allons maintenant l'attacher au `tokenURI`.
+
+## Configurer l'URI du jeton
+
+```
+mkdir contracts/libraries
+```
+
+Créer `contracts/librairies/Base64.sol` avec :
+
+```
+/**
+ *Submitted for verification at Etherscan.io on 2021-09-05
+ */
+
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.8.0;
+
+/// [MIT License]
+/// @title Base64
+/// @notice Provides a function for encoding some bytes in base64
+/// @author Brecht Devos <brecht@loopring.org>
+library Base64 {
+    bytes internal constant TABLE =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    /// @notice Encodes some bytes to the base64 representation
+    function encode(bytes memory data) internal pure returns (string memory) {
+        uint256 len = data.length;
+        if (len == 0) return "";
+
+        // multiply by 4/3 rounded up
+        uint256 encodedLen = 4 * ((len + 2) / 3);
+
+        // Add some extra buffer at the end
+        bytes memory result = new bytes(encodedLen + 32);
+
+        bytes memory table = TABLE;
+
+        assembly {
+            let tablePtr := add(table, 1)
+            let resultPtr := add(result, 32)
+
+            for {
+                let i := 0
+            } lt(i, len) {
+
+            } {
+                i := add(i, 3)
+                let input := and(mload(add(data, i)), 0xffffff)
+
+                let out := mload(add(tablePtr, and(shr(18, input), 0x3F)))
+                out := shl(8, out)
+                out := add(
+                    out,
+                    and(mload(add(tablePtr, and(shr(12, input), 0x3F))), 0xFF)
+                )
+                out := shl(8, out)
+                out := add(
+                    out,
+                    and(mload(add(tablePtr, and(shr(6, input), 0x3F))), 0xFF)
+                )
+                out := shl(8, out)
+                out := add(
+                    out,
+                    and(mload(add(tablePtr, and(input, 0x3F))), 0xFF)
+                )
+                out := shl(224, out)
+
+                mstore(resultPtr, out)
+
+                resultPtr := add(resultPtr, 4)
+            }
+
+            switch mod(len, 3)
+            case 1 {
+                mstore(sub(resultPtr, 2), shl(240, 0x3d3d))
+            }
+            case 2 {
+                mstore(sub(resultPtr, 1), shl(248, 0x3d))
+            }
+
+            mstore(result, encodedLen)
+        }
+
+        return string(result);
+    }
+}
+```
+
+Ce script permet d'encoder n'importe quelle donnée dans une chaîne Base64
+
+Dans le contrat `MyEpicGame.sol` :
+- importez :
+
+```
+import "./libraries/Base64.sol";
+```
+
+- ajouter :
+
+```
+function tokenURI(uint256 _tokenId) public view override returns (string memory) {
+  CharacterAttributes memory charAttributes = nftHolderAttributes[_tokenId];
+
+  string memory strHp = Strings.toString(charAttributes.hp);
+  string memory strMaxHp = Strings.toString(charAttributes.maxHp);
+  string memory strAttackDamage = Strings.toString(charAttributes.attackDamage);
+
+  string memory json = Base64.encode(
+    abi.encodePacked(
+      '{"name": "',
+      charAttributes.name,
+      ' -- NFT #: ',
+      Strings.toString(_tokenId),
+      '", "description": "This is an NFT that lets people play in the game Metaverse Slayer!", "image": "',
+      charAttributes.imageURI,
+      '", "attributes": [ { "trait_type": "Health Points", "value": ',strHp,', "max_value":',strMaxHp,'}, { "trait_type": "Attack Damage", "value": ',
+      strAttackDamage,'} ]}'
+    )
+  );
+
+  string memory output = string(
+    abi.encodePacked("data:application/json;base64,", json)
+  );
+  
+  return output;
+}
+```
+
+`CharacterAttributes memory charAttributes = nftHolderAttributes[_tokenId];` récupère les données NFT spécifiques à l'aide de `_tokenId`.
+
+On emballe ces données dans une variable nommée `json` :
+
+```
+string memory json = Base64.encode(
+  abi.encodePacked(
+        '{"name": "',
+        charAttributes.name,
+        ' -- NFT #: ',
+        Strings.toString(_tokenId),
+        '", "description": "This is an NFT that lets people play in the game Metaverse Slayer!", "image": "',
+        charAttributes.imageURI,
+        '", "attributes": [ { "trait_type": "Health Points", "value": ',strHp,', "max_value":',strMaxHp,'}, { "trait_type": "Attack Damage", "value": ',
+        strAttackDamage,'} ]}'
+  )
+);
+```
+
+`abi.encodePacked` combine des chaînes
+
+Cette norme de métadonnées est suivie par les sites Web NFT populaires comme OpenSea
+
+`abi.encodePacked("data:application/json;base64,", json)` transforme le fichier JSON en une chaîne encodée lisible par le navigateur
+
+```
+npx hardhat run scripts/run.js
+```
+
+Copier la valeur de `Token URI`, affichée dans la console, dans un navigateur. Les données JSON sont affichée dans la fenêtre du navigateur.
+
+# Déployer à Rinkeby, voir sur OpenSea
+
+QuickNode nous aide essentiellement à diffuser notre transaction de création de contrat afin qu'elle puisse être récupérée par les mineurs le plus rapidement possible. Une fois la transaction extraite, elle est ensuite diffusée sur la blockchain en tant que transaction légitime. À partir de là, chacun met à jour sa copie de la blockchain.
+
+Scénario :
+Diffusez notre transaction
+Attendez qu'il soit récupéré par de vrais mineurs
+Attendez qu'il soit miné
+Attendez qu'il soit rediffusé sur la blockchain en disant à tous les autres mineurs de mettre à jour leurs copies
+
+Obtenir des faucets :
+- Chainlink : https://faucets.chain.link/goerli	0,1	Aucun
+- Goerli :	https://goerlifaucet.com	0,25	24 heures
+- MonCrypto : https://app.mycrypto.com/faucet	0,01	Aucun
+
+## Configurer un fichier deploy.js
+
+scripts/deploy.js :
+
+```
+const main = async () => {
+  const gameContractFactory = await hre.ethers.getContractFactory('MyEpicGame');
+  const gameContract = await gameContractFactory.deploy(                     
+    ["Leo", "Aang", "Pikachu"],       
+    ["https://i.imgur.com/pKd5Sdk.png", 
+    "https://i.imgur.com/xVu4vFL.png", 
+    "https://i.imgur.com/u7T87A6.png"],
+    [100, 200, 300],                    
+    [100, 50, 25]                       
+  );
+  await gameContract.deployed();
+  console.log("Contract deployed to:", gameContract.address);
+
+  
+  let txn;
+  txn = await gameContract.mintCharacterNFT(0);
+  await txn.wait();
+  console.log("Minted NFT #1");
+
+  txn = await gameContract.mintCharacterNFT(1);
+  await txn.wait();
+  console.log("Minted NFT #2");
+
+  txn = await gameContract.mintCharacterNFT(2);
+  await txn.wait();
+  console.log("Minted NFT #3");
+
+  txn = await gameContract.mintCharacterNFT(1);
+  await txn.wait();
+  console.log("Minted NFT #4");
+
+  console.log("Done deploying and minting!");
+
+};
+
+const runMain = async () => {
+  try {
+    await main();
+    process.exit(0);
+  } catch (error) {
+    console.log(error);
+    process.exit(1);
+  }
+};
+
+runMain();
+```
+
+## Déployer sur Goerli testnet
+
+Ajouter à hardhat.config.js :
+
+```
+  networks: {
+    goerli: {
+      url: 'YOUR_QUICKNODE_API_URL',
+      accounts: ['YOUR_PRIVATE_GOERLI_ACCOUNT_KEY'],
+    },
+  },
+```
+
+```
+npx hardhat run scripts/deploy.js --network goerli
+```
+
+Sur https://goerli.etherscan.io/, vérifier qu'il y a 5 nouvelles transactions.
+
+Les NFT que vous venez de créer seront sur le site Testnet de Pixxiti :
+
+Aller sur https://goerli.pixxiti.com
+
+Créez cette URL : https://goerli.pixxiti.com/nfts/INSERT_DEPLOY_CONTRACT_ADDRESS_HERE/INSERT_TOKEN_ID_HERE
+
+attendez au moins 15 minutes pour que Pixxiti mette à jour votre NFT.
+
+??? cliquez sur "Collections" puis sur "Heroes". on voit les nfts
+
+Cliquez sur l'un des NFTs
+
+Cliquez sur "Levels" à gauche
+
+Les attributs sont affichés
+
+si nous modifions la valeur HP du NFT de ce lecteur 150 ou quoi que ce soit, il serait en fait mis à jour sur Pixiti
+
+les joueurs pourraient emmener leur personnage NFT vers d'autres jeux qui le prennent en charge.
+
+les dégâts d'attaque pourraient même partagées entre les jeux.
+
+# SHIP THE GAME LOGIC
+
+# Construisez un boss + une logique d'attaque
+
+## Construire notre boss
+
+Le boss aura essentiellement un nom, une image, des dégâts d'attaque et des HP. Le patron ne sera pas un NFT. Les données du patron vivront simplement sur notre contrat intelligent.
+
+```
+struct BigBoss {
+  string name;
+  string imageURI;
+  uint hp;
+  uint maxHp;
+  uint attackDamage;
+}
+
+BigBoss public bigBoss;
+```
+
+Initialiser le boss :
+
+```
+constructor(
+  string[] memory characterNames,
+  string[] memory characterImageURIs,
+  uint[] memory characterHp,
+  uint[] memory characterAttackDmg,
+  string memory bossName, // These new variables would be passed in via run.js or deploy.js.
+  string memory bossImageURI,
+  uint bossHp,
+  uint bossAttackDamage
+)
+  ERC721("Heroes", "HERO")
+{
+  // Initialize the boss. Save it to our global "bigBoss" state variable.
+  bigBoss = BigBoss({
+    name: bossName,
+    imageURI: bossImageURI,
+    hp: bossHp,
+    maxHp: bossHp,
+    attackDamage: bossAttackDamage
+  });
+
+  console.log("Done initializing boss %s w/ HP %s, img %s", bigBoss.name, bigBoss.hp, bigBoss.imageURI);
+
+  // All the other character code is below here is the same as before, just not showing it to keep things short!
+```
+
+Modifier `run.js` et `deploy.js` pour passer en params pour notre boss. Dans `const gameContract = await gameContractFactory.deploy`, ajouter les arguments :
+
+```
+  "Elon Musk", // Boss name
+  "https://i.imgur.com/AksR0tt.png", // Boss image
+  10000, // Boss hp
+  50 // Boss attack damage
+```
+
+## Récupérer les attributs NFT du joueur
+
+Dans `MyEpicGame.sol`, créer une fonction attackBoss :
+
+```
+function attackBoss() public {
+  // récupérer l'état NFT du personnage du joueur
+  // Ces données sont détenues dans nftHolderAttributesce qui nécessite tokenIdle NFT
+  uint256 nftTokenIdOfPlayer = nftHolders[msg.sender];
+  // lorsque nous le faisons storage, puis le faisons player.hp = 0, cela changerait la valeur de santé sur le NFT lui-même en 0.
+  // si nous devions utiliser à la memoryplace storage, cela créerait une copie locale de la variable dans le cadre de la fonction
+  CharacterAttributes storage player = nftHolderAttributes[nftTokenIdOfPlayer];
+  console.log("\nPlayer w/ character %s about to attack. Has %s HP and %s AD", player.name, player.hp, player.attackDamage);
+  console.log("Boss %s has %s HP and %s AD", bigBoss.name, bigBoss.hp, bigBoss.attackDamage);
+}
+```
+
+Dans `scripts/run.js`, ajouter sous `gameContract.deployed();` :
+
+```
+let txn;
+txn = await gameContract.mintCharacterNFT(2);
+await txn.wait();
+
+txn = await gameContract.attackBoss();
+await txn.wait();
+```
+
+ATTENTION, VOIR SI CE CODE N'EST PAS DOUBLE :
+
+```
+let txn;
+txn = await gameContract.mintCharacterNFT(2);
+await txn.wait();
+```
+
+```
+npx hardhat run scripts/run.js
+```
+
+## Faites quelques vérifications avant d'attaquer
+
+vérifier que le personnage a des HP
+
+Dans la fonction `attackBoss()`, ajouter :
+
+```
+// Make sure the player has more than 0 HP.
+  require (
+    player.hp > 0,
+    "Error: character must have HP to attack boss."
+  );
+
+  // Make sure the boss has more than 0 HP.
+  require (
+    bigBoss.hp > 0,
+    "Error: boss must have HP to attack character."
+  );
+```
+
+## Attaquez le boss
+
+On travail avec `uint` or le HP pourrait devenir négatif. On évite d'utiliser `int` car les bibliothèques comme OpenZeppelin ou Hardhat gèrent mal `int`.
+
+La solution est d'ajouter dans la fonction `attackBoss()` :
+
+```
+// Allow player to attack boss.
+  if (bigBoss.hp < player.attackDamage) {
+    bigBoss.hp = 0;
+  } else {
+    bigBoss.hp = bigBoss.hp - player.attackDamage;
+  }
+```
+
+## Ajoutez une logique pour que le boss attaque le joueur
+
+S'assurer que les PV du joueur ne se transforment pas en un nombre négatif également, car les PV du joueur sont aussi des `uint`.
+
+Dans la fonction `attackBoss()`, ajouter :
+
+```
+// Allow boss to attack player.
+  if (player.hp < bigBoss.attackDamage) {
+    player.hp = 0;
+  } else {
+    player.hp = player.hp - bigBoss.attackDamage;
+  }
+  
+  // Console for ease.
+  console.log("Player attacked boss. New boss hp: %s", bigBoss.hp);
+  console.log("Boss attacked player. New player hp: %s\n", player.hp);
+```
+
+Dans le fichier `scripts/run.js`, ajouter avant `tokenURI` :
+
+```
+txn = await gameContract.attackBoss();
+await txn.wait();
+```
+
+```
+npx hardhat run scripts/run.js
+```
+
+On va générer des nombres pseudo-aléatoires sur la chaîne pour introduire des chances qu'une attaque échoue.
+
+l'utilisation de nombres pseudo-aléatoires ne devrait être faite que dans des situations à faible enjeu
+
+Pour les nombres aléatoires, vous devriez utiliser https://docs.chain.link/docs/vrf/v2/introduction/?utm_source=buildspace.so&utm_medium=buildspace_project.
+
+Dans le fichier `contracts/MyEpicGame.sol`, ajouter :
+- la déclaration de variable :
+
+```
+uint randNonce = 0; // this is used to help ensure that the algorithm has different inputs every time
+```
+
+- la fonction :
+
+```
+function randomInt(uint _modulus) internal returns(uint) {
+   randNonce++;                                                     // increase nonce
+   return uint(keccak256(abi.encodePacked(block.timestamp,                      // an alias for 'block.timestamp'
+                                          msg.sender,               // your address
+                                          randNonce))) % _modulus;  // modulo using the _modulus argument
+ }
+```
+
+`internal` signifie que la fonction ne peut être appelée que depuis le contrat lui-même.
+
+Dans la fonction `randomInt()`, on envoie un flux de données dans la fonction keccak256, qui nous renvoie un hachage (pensez à quelque chose qui ressemble à l'adresse publique de votre portefeuille), puis nous ignorons tout dans ce hachage sauf le dernier chiffre 
+
+Remplacer le bloc `if (bigBoss.hp < player.attackDamage) {` par :
+
+```
+console.log("%s swings at %s...", player.name, bigBoss.name);        
+        if (bigBoss.hp < player.attackDamage) {
+            bigBoss.hp = 0;
+            console.log("The boss is dead!");
+        } else {
+            if (randomInt(10) > 5) {                                 // by passing 10 as the mod, we elect to only grab the last digit (0-9) of the hash!
+                bigBoss.hp = bigBoss.hp - player.attackDamage;
+                console.log("%s attacked boss. New boss hp: %s", player.name, bigBoss.hp);
+            } else {
+                console.log("%s missed!\n", player.name);
+            }
+        }
+```
+ 
+```
+npx hardhat run scripts/run.js
+```
+
+# Déployez et voyez les NFT évoluer en prod
+
+## Déployez à nouveau et voyez les valeurs NFT changer
+
+Dans le fichier `scripts/run.js`, supprimer la section :
+
+```
+    // Get the value of the NFT's URI.
+    let returnedTokenUri = await gameContract.tokenURI(1);
+    console.log("Token URI:", returnedTokenUri);
+```
+
+Puis copier le contenu restant dans le fichier `scripts/deploy.js`.
+
+```
+npx hardhat run scripts/deploy.js --network goerli
+```
+
+Aller sur `https://goerli.pixxiti.com/nfts/INSERT_DEPLOY_CONTRACT_ADDRESS_HERE/INSERT_TOKEN_ID_HERE`.
+
+Pour voir les valeurs actualisées, vous pouvez devoir cliquer sur le bouton `Refresh`.
+
+
+
 
 
 
