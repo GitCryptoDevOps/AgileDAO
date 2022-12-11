@@ -673,6 +673,8 @@ les dégâts d'attaque pourraient même partagées entre les jeux.
 
 Le boss aura essentiellement un nom, une image, des dégâts d'attaque et des HP. Le patron ne sera pas un NFT. Les données du patron vivront simplement sur notre contrat intelligent.
 
+Modifier le fichier `contracts/MyEpicGame.sol` :
+
 ```
 struct BigBoss {
   string name;
@@ -686,20 +688,16 @@ BigBoss public bigBoss;
 ```
 
 Initialiser le boss :
+- ajouter les arguments suivants au constructeur :
 
 ```
-constructor(
-  string[] memory characterNames,
-  string[] memory characterImageURIs,
-  uint[] memory characterHp,
-  uint[] memory characterAttackDmg,
-  string memory bossName, // These new variables would be passed in via run.js or deploy.js.
-  string memory bossImageURI,
   uint bossHp,
   uint bossAttackDamage
-)
-  ERC721("Heroes", "HERO")
-{
+```
+
+- ajouter en début de constructeur :
+
+```
   // Initialize the boss. Save it to our global "bigBoss" state variable.
   bigBoss = BigBoss({
     name: bossName,
@@ -710,8 +708,6 @@ constructor(
   });
 
   console.log("Done initializing boss %s w/ HP %s, img %s", bigBoss.name, bigBoss.hp, bigBoss.imageURI);
-
-  // All the other character code is below here is the same as before, just not showing it to keep things short!
 ```
 
 Modifier `run.js` et `deploy.js` pour passer en params pour notre boss. Dans `const gameContract = await gameContractFactory.deploy`, ajouter les arguments :
@@ -770,7 +766,7 @@ vérifier que le personnage a des HP
 Dans la fonction `attackBoss()`, ajouter :
 
 ```
-// Make sure the player has more than 0 HP.
+  // Make sure the player has more than 0 HP.
   require (
     player.hp > 0,
     "Error: character must have HP to attack boss."
@@ -790,7 +786,7 @@ On travail avec `uint` or le HP pourrait devenir négatif. On évite d'utiliser 
 La solution est d'ajouter dans la fonction `attackBoss()` :
 
 ```
-// Allow player to attack boss.
+  // Allow player to attack boss.
   if (bigBoss.hp < player.attackDamage) {
     bigBoss.hp = 0;
   } else {
@@ -805,7 +801,7 @@ S'assurer que les PV du joueur ne se transforment pas en un nombre négatif éga
 Dans la fonction `attackBoss()`, ajouter :
 
 ```
-// Allow boss to attack player.
+  // Allow boss to attack player.
   if (player.hp < bigBoss.attackDamage) {
     player.hp = 0;
   } else {
@@ -849,7 +845,7 @@ function randomInt(uint _modulus) internal returns(uint) {
    return uint(keccak256(abi.encodePacked(block.timestamp,                      // an alias for 'block.timestamp'
                                           msg.sender,               // your address
                                           randNonce))) % _modulus;  // modulo using the _modulus argument
- }
+}
 ```
 
 `internal` signifie que la fonction ne peut être appelée que depuis le contrat lui-même.
@@ -859,7 +855,7 @@ Dans la fonction `randomInt()`, on envoie un flux de données dans la fonction k
 Remplacer le bloc `if (bigBoss.hp < player.attackDamage) {` par :
 
 ```
-console.log("%s swings at %s...", player.name, bigBoss.name);        
+        console.log("%s swings at %s...", player.name, bigBoss.name);        
         if (bigBoss.hp < player.attackDamage) {
             bigBoss.hp = 0;
             console.log("The boss is dead!");
@@ -890,6 +886,8 @@ Dans le fichier `scripts/run.js`, supprimer la section :
 ```
 
 Puis copier le contenu restant dans le fichier `scripts/deploy.js`.
+
+Ce que nous voulons principalement tester maintenant, c'est la attackBossfonction. Il faudrait changer le HP sur le NFT.
 
 ```
 npx hardhat run scripts/deploy.js --network goerli
